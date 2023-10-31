@@ -151,7 +151,17 @@ LayeredSpherePEC(; radii=error("Missing argument `radii`"), embedding=Medium(ε0
     LayeredSpherePEC(radii, filling, embedding)
 
 
+struct Hemispheres{R,C} <: Sphere
+    radius::R
+    filling::SVector{2,Medium{C}}
+    embedding::Medium{C}
+end
 
+struct HemispherePEC{R,C}
+    radius::R
+    filling::Medium{C}
+    embedding::Medium{C}
+end
 
 """
     layer(sp::Sphere, r)

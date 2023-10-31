@@ -564,6 +564,134 @@ function scatteredfield(
 
 end
 
+function scatteredfield(
+    sphere::HemispherePEC,
+    excitation::UniformField,
+    point,
+    quantity::ScalarPotential;
+    N=300,
+    parameter=Parameter(),
+    )
+
+    Σ = zeros(N)
+    Σ[1] = SpecialFunctions.gamma(1)/SpecialFunctions.gamma(1/2)
+    Σ[2] = SpecialFunctions.gamma(3/2)/SpecialFunctions.gamma(1)
+    for (i,n) in enumerate(2:N-1)
+        Σ[i+2] = Σ[i]*(n)/(n-1)
+    end
+
+    a = sphere.radius
+    eps0 = sphere.embedding.ε
+    eps1 = sphere.filling.ε
+    Ee = excitation.amplitude
+
+    U = Matrix{Float64}(undef, N,N)
+    @show N
+    for n in 0:N-1
+        for k in 0:N-1
+            if n==k
+                U[n+1,k+1]=1/(2*n+1)
+            elseif (n+k)%2 == 0
+                U[n+1,k+1]=0.0
+            else
+                Ank = Σ[n+1]/Σ[k+1]
+                Akn = 1/Ank
+                U[n+1,k+1]=2/π*(sin(π/2*n)*cos(π/2*k)*Ank/(n*(n+1)-k*(k+1))-sin(π/2*k)*cos(π/2*n)*Akn/(n*(n+1)-k*(k+1)))
+            end
+        end
+    end
+
+    M11 = zeros(N, N)
+    for n in 0:N-1
+        for k in 0:N-1
+            M11[n+1,k+1]=U[n+1,k+1]*a^(-(n+1))*((-1)^(n+k))
+        end
+    end
+
+    M12 = zeros(Int(N/2)+1,N)
+    for (i,n) in enumerate(vcat(0,1:2:N-1))
+        for k in 0:N-1
+            M12[i,k+1]=-U[n+1,k+1]*(-1)^(n+k)*a^n
+        end
+    end
+
+    M1 = hcat(transpose(M11), transpose(M12))
+
+    M21 = zeros(N, N)
+    for n in 0:N-1
+        for k in 0:N-1
+            M21[n+1,k+1]=U[n+1,k+1]*a^(-(n+1))
+        end
+    end
+
+    M22 = -hcat((U[1,:]),zeros(N,Int(N/2)))
+    M2 = hcat(transpose(M21),M22)
+
+    M31 = zeros(N,N)
+    for n in 0:N-1
+        for k in 0:N-1
+            M31[n+1,k+1]=-U[n+1,k+1]*(-1)^(n+k)*a^(-(n+2))*(n+1)
+        end
+    end
+    M32 = zeros(Int(N/2)+1, N)
+    for (i,n) in enumerate(vcat(0,1:2:N-1))
+        for k in 0:N-1
+            M32[i,k+1]=-U[n+1,k+1]*(-1)^(n+k)*n*a^(n-1)
+        end
+    end
+
+    M3 = hcat(eps0*transpose(M31),eps1*transpose(M32))
+
+    M41 = zeros(1,N)
+    for n in 0:N-1
+        M41[n+1]=U[n+1,1]*a^(-(n+2))*(n+1)
+    end
+    M42 = zeros(1,Int(N/2)+1)
+    for (i,n) in enumerate(vcat(0,1:2:N-1))
+        M42[i]=-Pl(0,n+1)*a^(n-1)
+    end
+    M4 = hcat(eps0*M41,eps1*M42)
+
+    A1 = zeros(N)
+    for k in 0:N-1
+        A1[k+1]=U[2,k+1]*a*((-1)^(1+k))
+    end
+    A2 = zeros(N)
+    for k in 0:N-1
+        A2[k+1]=U[2,k+1]*a*(1)
+    end
+    A3 = zeros(N)
+    for k in 0:N-1
+        A3[k+1]=eps0*U[2,k+1]*(-1)^(1+k)
+    end
+    A4 = zeros(1)
+    A4 = -eps0*U[1,2]
+
+    M = vcat((M1-M2),M3[1:2:N,:],M4)
+    A = vcat((A1-A2),A3[1:2:N,:],A4)
+
+    res = pinv(M) * A
+
+    B = (res)[1:N]
+    D = (res)[N+1:end]
+    C = zeros(N)
+    C[1] = D[1]
+
+    rs = norm.(point)
+    res = zeros(length(point))
+    for (i,r) in enumerate(rs)
+        if r > a
+            res[i] = B'*[r^(-(n+1))*Pl(point[i][3]/r,n) for n in 0:N-1] -  Ee*r*point[i][3]/r
+        elseif point[i][3] < 0
+            @show res[i] = D'*[r^n*Pl(point[i][3]/r, n) for n in vcat([0],1:2:N-1)]
+        else
+            res[i] = C[1]
+        end
+    end
+
+    return res
+end
+
 fieldType(F::ElectricField)       = SVector{3,Complex{eltype(F.locations[1])}}
 fieldType(F::DisplacementField)   = SVector{3,Complex{eltype(F.locations[1])}}
 fieldType(F::ScalarPotential)     = Complex{eltype(F.locations[1])}
