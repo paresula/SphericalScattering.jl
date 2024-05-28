@@ -210,4 +210,45 @@ end
         @test norm(ε∇Φsca_ana_app(points_cartNF * 2.0) - ex.embedding.ε * Esca(points_cartNF * 2.0)) /
               abs(ex.embedding.ε * norm(Esca(points_cartNF * 2.0))) < 0.007
     end
+
+    @testset "Dielectric Hemispheres" begin
+        # check that for two equal permittivities in the hemispheres, result equals dielectric sphere
+        radius = 2.0
+        eps = 500.0
+        amp = 5.0
+        ex = UniformField(; amplitude=amp, direction=SVector(1.0, 1.0, 1.0), embedding=Medium(1.0, 1.0))
+        hemisphere = Hemispheres(; radius=radius, filling=SVector(Medium(eps, 1.0), Medium(eps, 1.0)))
+        sphere = DielectricSphere(; radius=radius, filling=Medium(eps, 1.0))
+        pts = [
+            SVector(0.0, 0.0, 0.0), SVector(0.1, 0.1, 1.0), SVector(0.1, 0.1, -1.0), SVector(5.0, 2.0, 3.0), SVector(radius, 0.0, 0.0)
+        ]
+        @test isapprox(
+            scatteredfield(hemisphere, ex, ScalarPotential(pts); parameter=Parameter(10, 1e-12)),
+            scatteredfield(sphere, ex, ScalarPotential(pts); parameter=Parameter(10, 1e-12)),
+            atol=1e-15,
+        )
+
+        # test non-identical permittivities by comparing polarizability with figure 5 in "Polarizability of a dielectric hemisphere", Kettunen et al., 2007
+        eps1 = 1
+        eps2 = 20
+        hemisphere = Hemispheres(; radius=radius, filling=SVector(Medium(eps1, 1.0), Medium(eps2, 1.0)))
+        B, _, _ = SphericalScattering.scatterCoeffz(hemisphere, ex, 200)
+        @test isapprox(6 * B[2] / (amp * radius^3), 1.943, rtol=5e-2)
+        B, _, _ = SphericalScattering.scatterCoeffxy(hemisphere, ex, 200)
+        @test isapprox(-6 * B[1] / (amp * radius^3), 3.587, rtol=5e-2)
+
+        eps2 = 0
+        hemisphere = Hemispheres(; radius=radius, filling=SVector(Medium(eps1, 1.0), Medium(eps2, 1.0)))
+        B, _, _ = SphericalScattering.scatterCoeffz(hemisphere, ex, 200)
+        @test isapprox(6 * B[2] / (amp * radius^3), -2.18, rtol=5e-2)
+        B, _, _ = SphericalScattering.scatterCoeffxy(hemisphere, ex, 200)
+        @test isapprox(-6 * B[1] / (amp * radius^3), -1.368, rtol=5e-2)
+
+        eps2 = 50
+        hemisphere = Hemispheres(; radius=radius, filling=SVector(Medium(eps1, 1.0), Medium(eps2, 1.0)))
+        B, _, _ = SphericalScattering.scatterCoeffz(hemisphere, ex, 200)
+        @test isapprox(6 * B[2] / (amp * radius^3), 2.08, rtol=5e-2)
+        B, _, _ = SphericalScattering.scatterCoeffxy(hemisphere, ex, 200)
+        @test isapprox(-6 * B[1] / (amp * radius^3), 4.058, rtol=5e-2)
+    end
 end

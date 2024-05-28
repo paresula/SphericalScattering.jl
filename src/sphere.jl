@@ -149,6 +149,41 @@ function LayeredSpherePEC(; radii=error("Missing argument `radii`"), filling=err
     LayeredSpherePEC(radii, filling)
 end
 
+struct Hemispheres{R,C} <: Sphere
+    radii::R
+    filling::SVector{2,Medium{C}}
+end
+
+"""
+    Hemispheres( 
+        radii   = error("Missing argument `radius`"), 
+        filling = error("Missing argument `filling`")
+    )
+
+Constructor for the dielectric hemispheres.
+"""
+function Hemispheres(; radius=error("Missing argument `radius`"), filling=error("Missing argument `filling`"))
+
+    Hemispheres(radius, filling)
+end
+
+struct HemispheresPEC{R,C} <: Sphere
+    radii::R
+    filling::Medium{C}
+end
+
+"""
+    HemispheresPEC( 
+        radii   = error("Missing argument `radius`"), 
+        filling = error("Missing argument `filling`")
+    )
+
+Constructor for the dielectric hemisphere with PEC hemisphere.
+"""
+function HemispheresPEC(; radius=error("Missing argument `radius`"), filling=error("Missing argument `filling`"))
+
+    HemispheresPEC(radius, filling)
+end
 
 """
     numlayers(sp::Sphere)

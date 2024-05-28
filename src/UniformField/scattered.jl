@@ -502,7 +502,266 @@ function scatterCoeff(sphere::LayeredSpherePEC{LN,LD,LR,LC}, excitation::Uniform
     return C, D
 end
 
+"""
+    scatteredfield(sphere::Hemispheres, excitation::UniformField, point, quantity::ScalarPotential; parameter::Parameter=Parameter())
 
+Compute the electric field scattered by a sphere where the upper and lower hemisphere have different permittivities, for an incident uniform field with polarization in the given direction
+`Kettunen et al., 2007, Polarizability of a dielectric hemisphere`.
+
+The point and returned field are in Cartesian coordinates.
+"""
+function scatteredfield(sphere::Hemispheres, excitation::UniformField, quantity::Field; parameter::Parameter=Parameter())
+
+    Bz, Cz, Dz = scatterCoeffz(sphere, excitation, parameter.nmax)
+    Bxy, Cxy, Dxy = scatterCoeffxy(sphere, excitation, parameter.nmax)
+
+    F = zeros(fieldType(quantity), size(quantity.locations))
+
+    # --- compute field in Cartesian representation
+    for (ind, point) in enumerate(quantity.locations)
+        F[ind] = scatteredfield(sphere, excitation, point, quantity, Bz, Cz, Dz, Bxy, Cxy, Dxy; parameter=parameter)
+    end
+
+    return F
+end
+
+function scatteredfield(
+    sphere::Hemispheres{LR,LC},
+    excitation::UniformField{FC,FT,FR},
+    point,
+    quantity::ScalarPotential,
+    Bz,
+    Cz,
+    Dz,
+    Bxy,
+    Cxy,
+    Dxy;
+    parameter::Parameter=Parameter(),
+) where {LR,LC,FC,FT,FR}
+
+    E0 = excitation.amplitude
+    dir = excitation.direction
+
+    zproj = dot(dir, SVector(0.0, 0.0, 1.0))
+    xproj = dot(dir, SVector(1.0, 0.0, 0.0))
+    yproj = dot(dir, SVector(0.0, 1.0, 0.0))
+
+    N = parameter.nmax
+
+    r, θ, φ = cart2sph(point)
+
+    if r < sphere.radii
+        if θ < π / 2
+            return zproj * [r^i * Pl(cos(θ), i) for i in 0:(N - 1)] ⋅ Cz + (xproj * cos(φ) + yproj * sin(φ)) * [r^i * Plm(cos(θ), i, 1) for i in 1:(N - 1)] ⋅ Cxy -
+                   field(excitation, point, quantity; parameter=parameter)#- E0*point⋅dir
+        else
+            return zproj * [r^i * Pl(cos(θ), i) for i in 0:(N - 1)] ⋅ Dz + (xproj * cos(φ) + yproj * sin(φ)) * [r^i * Plm(cos(θ), i, 1) for i in 1:(N - 1)] ⋅ Dxy -
+                   field(excitation, point, quantity; parameter=parameter)
+        end
+    else
+        return zproj * [r^(-(i + 1)) * Pl(cos(θ), i) for i in 0:(N - 1)] ⋅ Bz + (xproj * cos(φ) + yproj * sin(φ)) * [r^(-(i + 1)) * Plm(cos(θ), i, 1) for i in 1:(N - 1)] ⋅ Bxy
+    end
+end
+
+"""
+    scatterCoeffz(sphere::Hemispheres, excitation::UniformField, N)
+
+    Compute the coefficients for the different regions following `Kettunen et al., 2007, Polarizability of a dielectric hemisphere`
+    for incident fields in z-direction.
+    
+"""
+function scatterCoeffz(sphere::Hemispheres{LR,LC}, excitation::UniformField{FC,FT,FR}, N) where {LR,LC,FC,FT,FR}
+
+    a = sphere.radii
+    E0 = excitation.amplitude
+    perms = getfield.(vcat(sphere.filling, excitation.embedding), 1)
+
+    T = promote_type(LR, LC, FC, FT, FR)
+
+    Σ = zeros(N)
+    Σ[1] = SpecialFunctions.gamma(1) / SpecialFunctions.gamma(1 / 2)
+    Σ[2] = SpecialFunctions.gamma(3 / 2) / SpecialFunctions.gamma(1)
+    for (i, n) in enumerate(2:(N - 1))
+        Σ[i + 2] = Σ[i] * (n) / (n - 1)
+    end
+
+    U = Matrix{T}(undef, N, N)
+
+    for n in 0:(N - 1)
+        for k in 0:(N - 1)
+            if n == k
+                U[n + 1, k + 1] = 1 / (2 * n + 1)
+            elseif (n + k) % 2 == 0
+                U[n + 1, k + 1] = 0.0
+            else
+                Ank = Σ[n + 1] / Σ[k + 1]
+                Akn = 1 / Ank
+                U[n + 1, k + 1] =
+                    2 / π * (
+                        sin(π / 2 * n) * cos(π / 2 * k) * Ank / (n * (n + 1) - k * (k + 1)) -
+                        sin(π / 2 * k) * cos(π / 2 * n) * Akn / (n * (n + 1) - k * (k + 1))
+                    )
+            end
+        end
+    end
+
+    eps1 = perms[1]
+    eps2 = perms[2]
+    ε0 = perms[3]
+
+    M = Matrix{T}(undef, N, N)
+    for k in 0:(N - 1)
+        for n in 0:(N - 1)
+            if k % 2 == 0
+                η = 1
+            else
+                η = eps2 / eps1
+            end
+            M[k + 1, n + 1] =
+                a^(-(n + 2)) *
+                (η * (n + 1) + η * k * eps1 / ε0 + (-1)^(n + k) * (n + 1) + (-1)^(n + k) * k * eps2 / ε0) *
+                U[n + 1, k + 1]
+        end
+    end
+    A = Vector{T}(undef, N)
+    for k in 0:(N - 1)
+        if k % 2 == 0
+            η = 1
+        else
+            η = eps2 / eps1
+        end
+        A[k + 1] = E0 * (η * k * eps1 / ε0 - η + (-1)^(1 + k) * k * eps2 / ε0 - (-1)^(1 + k)) * U[1 + 1, k + 1]
+    end
+    M2 = Matrix{T}(undef, N, N)
+    for k in 0:(N - 1)
+        for n in 0:(N - 1)
+            if n % 2 == 0
+                η = 1
+            else
+                η = eps2 / eps1
+            end
+            M2[k + 1, n + 1] =
+                a^(n) * (η + η * (n * eps1 / (k + 1)) + (-1)^(n + k) + (-1)^(n + k) * (n * eps2) / (k + 1)) * U[n + 1, k + 1]
+        end
+    end
+    A2 = Vector{T}(undef, N)
+    for k in 0:(N - 1)
+        A2[k + 1] = -E0 * a * (1 / (k + 1) + 1 + (-1)^(1 + k) / (k + 1) + (-1)^(1 + k)) * U[1 + 1, k + 1]
+    end
+
+    B = M \ A
+    D = M2 \ A2
+    C = Vector{T}(undef, N)
+    for k in 0:(N - 1)
+        if k % 2 == 0
+            η = 1
+        else
+            η = eps2 / eps1
+        end
+        C[k + 1] = η * D[k + 1]
+    end
+
+    return B, C, D
+
+end
+
+"""
+    scatterCoeffxy(sphere::Hemispheres, excitation::UniformField, N)
+
+    Compute the coefficients for the different regions following `Kettunen et al., 2007, Polarizability of a dielectric hemisphere`
+    for incident fields in x- or y-direction.
+    
+"""
+function scatterCoeffxy(sphere::Hemispheres{LR,LC}, excitation::UniformField{FC,FT,FR}, N) where {LR,LC,FC,FT,FR}
+
+    a = sphere.radii
+    E0 = excitation.amplitude
+    perms = getfield.(vcat(sphere.filling, excitation.embedding), 1)
+
+    T = promote_type(LR, LC, FC, FT, FR)
+
+    Σ = zeros(N)
+    Σ[1] = SpecialFunctions.gamma(1) / SpecialFunctions.gamma(1 / 2)
+    Σ[2] = SpecialFunctions.gamma(3 / 2) / SpecialFunctions.gamma(1)
+    for (i, n) in enumerate(2:(N - 1))
+        Σ[i + 2] = Σ[i] * (n) / (n - 1)
+    end
+
+    U = Matrix{T}(undef, N - 1, N - 1)
+
+    for n in 1:(N - 1)
+        for k in 1:(N - 1)
+            if n == k
+                U[n, k] = (n * (n + 1)) / (2 * n + 1)
+            elseif (n + k) % 2 == 0
+                U[n, k] = 0.0
+            else
+                Ank = Σ[n + 1] / Σ[k + 1]
+                Akn = 1 / Ank
+                U[n, k] =
+                    2 / π * (
+                        k * (k + 1) * sin(π / 2 * n) * cos(π / 2 * k) * Ank / (n * (n + 1) - k * (k + 1)) -
+                        n * (n + 1) * sin(π / 2 * k) * cos(π / 2 * n) * Akn / (n * (n + 1) - k * (k + 1))
+                    )
+            end
+        end
+    end
+
+    eps1 = perms[1]
+    eps2 = perms[2]
+    ε0 = perms[3]
+
+    M = Matrix{T}(undef, N - 1, N - 1)
+    for k in 1:(N - 1)
+        for n in 1:(N - 1)
+            if k % 2 == 0
+                η = eps2 / eps1
+            else
+                η = 1
+            end
+            M[k, n] =
+                a^(-(n + 2)) * (η * (n + 1) + η * k * eps1 / ε0 + (-1)^(n + k) * (n + 1) + (-1)^(n + k) * k * eps2 / ε0) * U[n, k]
+        end
+    end
+    A = Vector{T}(undef, N - 1)
+    for k in 1:(N - 1)
+        if k % 2 == 0
+            η = eps2 / eps1
+        else
+            η = 1
+        end
+        A[k] = -E0 * (η * k * eps1 / ε0 - η + (-1)^(1 + k) * k * eps2 / ε0 - (-1)^(1 + k)) * U[1, k]
+    end
+    M2 = Matrix{T}(undef, N - 1, N - 1)
+    for k in 1:(N - 1)
+        for n in 1:(N - 1)
+            if n % 2 == 0
+                η = eps2 / eps1
+            else
+                η = 1
+            end
+            M2[k, n] = a^(n) * (η + η * (n * eps1 / (k + 1)) + (-1)^(n + k) + (-1)^(n + k) * (n * eps2) / (k + 1)) * U[n, k]
+        end
+    end
+    A2 = Vector{T}(undef, N - 1)
+    for k in 1:(N - 1)
+        A2[k] = E0 * a * (1 / (k + 1) + 1 + (-1)^(1 + k) / (k + 1) + (-1)^(1 + k)) * U[1, k]
+    end
+
+    B = M \ A
+    D = M2 \ A2
+    C = Vector{T}(undef, N - 1)
+    for k in 1:(N - 1)
+        if k % 2 == 0
+            η = eps2 / eps1
+        else
+            η = 1
+        end
+        C[k] = η * D[k]
+    end
+    return B, C, D
+
+end
 
 fieldType(F::ElectricField)       = SVector{3,Complex{eltype(F.locations[1])}}
 fieldType(F::DisplacementField)   = SVector{3,Complex{eltype(F.locations[1])}}
