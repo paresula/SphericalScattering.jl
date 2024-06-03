@@ -220,12 +220,35 @@ end
         hemisphere = Hemispheres(; radius=radius, filling=SVector(Medium(eps, 1.0), Medium(eps, 1.0)))
         sphere = DielectricSphere(; radius=radius, filling=Medium(eps, 1.0))
         pts = [
-            SVector(0.0, 0.0, 0.0), SVector(0.1, 0.1, 1.0), SVector(0.1, 0.1, -1.0), SVector(5.0, 2.0, 3.0), SVector(radius, 0.0, 0.0)
+            SVector(0.0, 0.0, 0.0),
+            SVector(0.0, 0.0, radius / 2),
+            SVector(0.0, 0.0, -radius / 2),
+            SVector(radius / 2, 0.0, 0.0),
+            SVector(-radius / 2, 0.0, 0.0),
+            SVector(0.0, radius / 2, 0.0),
+            SVector(0.0, -radius / 2, 0.0),
+            SVector(0.0, 0.0, radius * 2),
+            SVector(0.0, 0.0, -radius * 2),
+            SVector(radius * 2, 0.0, 0.0),
+            SVector(-radius * 2, 0.0, 0.0),
+            SVector(0.0, radius * 2, 0.0),
+            SVector(0.0, -radius * 2, 0.0),
+            SVector(radius / 2, radius / 2, radius / 2),
+            SVector(-radius / 2, -radius / 2, -radius / 2),
+            SVector(radius * 2, radius * 2, radius * 2),
+            SVector(-radius * 2, -radius * 2, -radius * 2),
         ]
+        # test potential
         @test isapprox(
             scatteredfield(hemisphere, ex, ScalarPotential(pts); parameter=Parameter(10, 1e-12)),
             scatteredfield(sphere, ex, ScalarPotential(pts); parameter=Parameter(10, 1e-12)),
             atol=1e-15,
+        )
+        # test electric field
+        @test isapprox(
+            (scatteredfield(hemisphere, ex, ElectricField(pts); parameter=Parameter(10, 1e-12))),
+            (scatteredfield(sphere, ex, ElectricField(pts); parameter=Parameter(10, 1e-12))),
+            atol=1e-12,
         )
 
         # test non-identical permittivities by comparing polarizability with figure 5 in "Polarizability of a dielectric hemisphere", Kettunen et al., 2007

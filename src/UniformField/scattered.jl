@@ -503,7 +503,7 @@ function scatterCoeff(sphere::LayeredSpherePEC{LN,LD,LR,LC}, excitation::Uniform
 end
 
 """
-    scatteredfield(sphere::Hemispheres, excitation::UniformField, point, quantity::ScalarPotential; parameter::Parameter=Parameter())
+    scatteredfield(sphere::Hemispheres, excitation::UniformField, point, quantity::Field; parameter::Parameter=Parameter())
 
 Compute the electric field scattered by a sphere where the upper and lower hemisphere have different permittivities, for an incident uniform field with polarization in the given direction
 `Kettunen et al., 2007, Polarizability of a dielectric hemisphere`.
@@ -553,13 +553,213 @@ function scatteredfield(
     if r < sphere.radii
         if θ < π / 2
             return zproj * [r^i * Pl(cos(θ), i) for i in 0:(N - 1)] ⋅ Cz + (xproj * cos(φ) + yproj * sin(φ)) * [r^i * Plm(cos(θ), i, 1) for i in 1:(N - 1)] ⋅ Cxy -
-                   field(excitation, point, quantity; parameter=parameter)#- E0*point⋅dir
+                   field(excitation, point, quantity; parameter=parameter)
         else
             return zproj * [r^i * Pl(cos(θ), i) for i in 0:(N - 1)] ⋅ Dz + (xproj * cos(φ) + yproj * sin(φ)) * [r^i * Plm(cos(θ), i, 1) for i in 1:(N - 1)] ⋅ Dxy -
                    field(excitation, point, quantity; parameter=parameter)
         end
     else
         return zproj * [r^(-(i + 1)) * Pl(cos(θ), i) for i in 0:(N - 1)] ⋅ Bz + (xproj * cos(φ) + yproj * sin(φ)) * [r^(-(i + 1)) * Plm(cos(θ), i, 1) for i in 1:(N - 1)] ⋅ Bxy
+    end
+end
+
+function scatteredfield(
+    sphere::Hemispheres{LR,LC},
+    excitation::UniformField{FC,FT,FR},
+    point,
+    quantity::ElectricField,
+    Bz,
+    Cz,
+    Dz,
+    Bxy,
+    Cxy,
+    Dxy;
+    parameter::Parameter=Parameter(),
+) where {LR,LC,FC,FT,FR}
+
+    E0 = excitation.amplitude
+    dir = excitation.direction
+    x̂ = SVector(1.0, 0.0, 0.0)
+    ŷ = SVector(0.0, 1.0, 0.0)
+    ẑ = SVector(0.0, 0.0, 1.0)
+    zproj = dot(dir, ẑ)
+    xproj = dot(dir, x̂)
+    yproj = dot(dir, ŷ)
+
+    N = parameter.nmax
+
+    r, θ, φ = cart2sph(point)
+    r̂ = sin(θ) * cos(φ) * x̂ + sin(θ) * sin(φ) * ŷ + cos(θ) * ẑ
+    θ̂ = cos(θ) * cos(φ) * x̂ + cos(θ) * sin(φ) * ŷ + -sin(θ) * ẑ
+    φ̂ = -sin(φ) * x̂ + cos(φ) * ŷ
+
+    if r <= sphere.radii
+        if θ < π / 2
+            return -zproj * (
+                [i * r^(i - 1) * Pl(cos(θ), i) for i in 1:(N - 1)] ⋅ Cz[2:end] * r̂ + (
+                    if θ == 0.0
+                        SVector(0.0, 0.0, 0.0)
+                    else
+                        [-r^(i - 1) * (i + 1) / sin(θ) * (cos(θ) * Pl(cos(θ), i) - Pl(cos(θ), i + 1)) for i in 0:(N - 1)] ⋅ Cz * θ̂
+                    end
+                )
+            ) -
+                   xproj * (
+                [i * r^(i - 1) * Plm(cos(θ), i, 1) * cos(φ) for i in 1:(N - 1)] ⋅ Cxy * r̂ - (
+                    if θ == 0.0
+                        [
+                            r^(i - 1) *
+                            ((i + 1) * cos(θ) * (-1 / 2) * i * (1 + i) * cos(φ) - i * (-1 / 2) * (i + 1) * (2 + i) * cos(φ)) for
+                            i in 1:(N - 1)
+                        ] ⋅ Cxy * θ̂
+                    else
+                        [
+                            r^(i - 1) / sin(θ) * ((i + 1) * cos(θ) * Plm(cos(θ), i, 1) * cos(φ) - i * Plm(cos(θ), i + 1, 1) * cos(φ))
+                            for i in 1:(N - 1)
+                        ] ⋅ Cxy * θ̂
+                    end
+                ) - (
+                    if φ == 0.0 || φ == π
+                        SVector(0.0, 0.0, 0.0)
+                    else
+                        [r^(i - 1) / sin(θ) * Plm(cos(θ), i, 1) * sin(φ) for i in 1:(N - 1)] ⋅ Cxy * φ̂
+                    end
+                )
+            ) -
+                   yproj * (
+                [i * r^(i - 1) * Plm(cos(θ), i, 1) * sin(φ) for i in 1:(N - 1)] ⋅ Cxy * r̂ - (
+                    if θ == 0.0
+                        [
+                            r^(i - 1) *
+                            ((i + 1) * cos(θ) * (-1 / 2) * i * (1 + i) * sin(φ) - i * (-1 / 2) * (i + 1) * (2 + i) * sin(φ)) for
+                            i in 1:(N - 1)
+                        ] ⋅ Cxy * θ̂
+                    else
+                        [
+                            r^(i - 1) / sin(θ) * ((i + 1) * cos(θ) * Plm(cos(θ), i, 1) * sin(φ) - i * Plm(cos(θ), i + 1, 1) * sin(φ))
+                            for i in 1:(N - 1)
+                        ] ⋅ Cxy * θ̂
+                    end
+                ) + (
+                    if θ == 0.0
+                        [r^(i - 1) * cos(φ) * (-1 / 2) * i * (i + 1) for i in 1:(N - 1)] ⋅ Cxy * φ̂
+                    else
+                        [r^(i - 1) / sin(θ) * Plm(cos(θ), i, 1) * cos(φ) for i in 1:(N - 1)] ⋅ Cxy * φ̂
+                    end
+                )
+            ) - field(excitation, point, quantity; parameter=parameter)
+        else
+            return -zproj * (
+                [i * r^(i - 1) * Pl(cos(θ), i) for i in 1:(N - 1)] ⋅ Dz[2:end] * r̂ + (
+                    if θ ≈ π
+                        SVector(0.0, 0.0, 0.0)
+                    else
+                        [-r^(i - 1) * (i + 1) / sin(θ) * (cos(θ) * Pl(cos(θ), i) - Pl(cos(θ), i + 1)) for i in 0:(N - 1)] ⋅ Dz * θ̂
+                    end
+                )
+            ) -
+                   xproj * (
+                [i * r^(i - 1) * Plm(cos(θ), i, 1) * cos(φ) for i in 1:(N - 1)] ⋅ Dxy * r̂ - (
+                    if θ ≈ π
+                        [
+                            r^(i - 1) * (
+                                (i + 1) * cos(θ) * (-1 / 2) * i * (1 + i) * (-1)^(i + 1) * cos(φ) -
+                                i * (-1 / 2) * (-1)^(i) * (i + 1) * (2 + i) * cos(φ)
+                            ) for i in 1:(N - 1)
+                        ] ⋅ Dxy * θ̂
+                    else
+                        [
+                            r^(i - 1) / sin(θ) * (cos(θ) * (i + 1) * Plm(cos(θ), i, 1) * cos(φ) - i * Plm(cos(θ), i + 1, 1) * cos(φ))
+                            for i in 1:(N - 1)
+                        ] ⋅ Dxy * θ̂
+                    end
+                ) - (
+                    if φ == 0.0 || φ ≈ π
+                        SVector(0.0, 0.0, 0.0)
+                    else
+                        [r^(i - 1) / sin(θ) * Plm(cos(θ), i, 1) * sin(φ) for i in 1:(N - 1)] ⋅ Dxy * φ̂
+                    end
+                )
+            ) -
+                   yproj * (
+                [i * r^(i - 1) * Plm(cos(θ), i, 1) * sin(φ) for i in 1:(N - 1)] ⋅ Dxy * r̂ - (
+                    if θ ≈ π
+                        [
+                            r^(i - 1) * (
+                                (i + 1) * cos(θ) * (-1 / 2) * i * (1 + i) * (-1)^(i + 1) * sin(φ) -
+                                i * (-1 / 2) * (-1)^(i) * (i + 1) * (2 + i) * sin(φ)
+                            ) for i in 1:(N - 1)
+                        ] ⋅ Dxy * θ̂
+                    else
+                        [
+                            r^(i - 1) / sin(θ) * (cos(θ) * (i + 1) * Plm(cos(θ), i, 1) * sin(φ) - i * Plm(cos(θ), i + 1, 1) * sin(φ))
+                            for i in 1:(N - 1)
+                        ] ⋅ Dxy * θ̂
+                    end
+                ) + (
+                    if θ ≈ π
+                        [r^(i - 1) * cos(φ) * (-1 / 2) * i * (-1)^(i + 1) * (i + 1) for i in 1:(N - 1)] ⋅ Dxy * φ̂
+                    else
+                        [r^(i - 1) / sin(θ) * Plm(cos(θ), i, 1) * cos(φ) for i in 1:(N - 1)] ⋅ Dxy * φ̂
+                    end
+                )
+            ) - field(excitation, point, quantity; parameter=parameter)
+        end
+    else
+        return -zproj * (
+            [-(i + 1) * r^(-(i + 2)) * Pl(cos(θ), i) for i in 0:(N - 1)] ⋅ Bz * r̂ + (
+                if θ == 0.0 || θ ≈ π
+                    SVector(0.0, 0.0, 0.0)
+                else
+                    [-r^(-(i + 2)) * (i + 1) / sin(θ) * (cos(θ) * Pl(cos(θ), i) - Pl(cos(θ), i + 1)) for i in 0:(N - 1)] ⋅ Bz * θ̂
+                end
+            )
+        ) -
+               xproj * (
+            [-(i + 1) * r^(-(i + 2)) * Plm(cos(θ), i, 1) * cos(φ) for i in 1:(N - 1)] ⋅ Bxy * r̂ +
+            (
+                if θ == 0.0 || θ ≈ π
+                    [
+                        -r^(-(i + 2)) * (
+                            (i + 1) * cos(θ) * (-1 / 2) * i * cos(θ)^(i + 1) * (1 + i) * cos(φ) -
+                            i * (-1 / 2) * cos(θ)^(i) * (i + 1) * (2 + i) * cos(φ)
+                        ) for i in 1:(N - 1)
+                    ] ⋅ Bxy * θ̂
+                else
+                    [
+                        -r^(-(i + 2)) / sin(θ) * ((i + 1) * cos(θ) * Plm(cos(θ), i, 1) - i * Plm(cos(θ), i + 1, 1)) * cos(φ) for
+                        i in 1:(N - 1)
+                    ] ⋅ Bxy * θ̂
+                end
+            ) +
+            (
+                if φ == 0.0 || φ ≈ π
+                    SVector(0.0, 0.0, 0.0)
+                else
+                    [-r^(-(i + 2)) / sin(θ) * Plm(cos(θ), i, 1) * sin(φ) for i in 1:(N - 1)] ⋅ Bxy * φ̂
+                end
+            )
+        ) -
+               yproj * (
+            [-(i + 1) * r^(-(i + 2)) * Plm(cos(θ), i, 1) * sin(φ) for i in 1:(N - 1)] ⋅ Bxy * r̂ +
+            (
+                if θ == 0.0 || θ ≈ π
+                    SVector(0.0, 0.0, 0.0)
+                else
+                    [
+                        -r^(-(i + 2)) / sin(θ) * ((i + 1) * cos(θ) * Plm(cos(θ), i, 1) * sin(φ) - i * Plm(cos(θ), i + 1, 1) * sin(φ))
+                        for i in 1:(N - 1)
+                    ] ⋅ Bxy * θ̂
+                end
+            ) +
+            (
+                if θ == 0.0 || θ ≈ π
+                    [r^(-(i + 2)) * cos(φ) * (-1 / 2) * i * cos(θ)^(i + 1) * (i + 1) for i in 1:(N - 1)] ⋅ Bxy * φ̂
+                else
+                    [r^(-(i + 2)) / sin(θ) * Plm(cos(θ), i, 1) * cos(φ) for i in 1:(N - 1)] ⋅ Bxy * φ̂
+                end
+            )
+        )
     end
 end
 
