@@ -163,6 +163,13 @@ struct HemispherePEC{R,C}
     embedding::Medium{C}
 end
 
+struct HemispheresPECCore{R,C}
+    radii::Vector{R}
+    filling::Vector{Medium{C}}
+    embedding::Medium{C}
+end
+
+
 """
     layer(sp::Sphere, r)
 

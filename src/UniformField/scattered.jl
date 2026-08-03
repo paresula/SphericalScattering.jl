@@ -692,6 +692,64 @@ function scatteredfield(
     return res
 end
 
+function scatteredfield(
+    sphere::HemispheresPECCore,
+    excitation::UniformField,
+    point,
+    quantity::ScalarPotential;
+    N=300,
+    parameter=Parameter(),
+    )
+    Σ = zeros(N)
+    Σ[1] = SpecialFunctions.gamma(1)/SpecialFunctions.gamma(1/2)
+    Σ[2] = SpecialFunctions.gamma(3/2)/SpecialFunctions.gamma(1)
+    for (i,n) in enumerate(2:N-1)
+        Σ[i+2] = Σ[i]*(n)/(n-1)
+    end
+    η = eps2/eps1
+    eta = zeros(N+1)
+    for i in 0:2:N
+        eta[i+1] = 1.0
+    end
+    for i in 1:2:N
+        eta[i+1] = η
+    end
+    a = sphere.radii[1]
+    b = sphere.radii[2]
+    eps0 = sphere.embedding.ε
+    eps1 = sphere.filling[1].ε
+    eps2 = sphere.filling[2].ε
+    Ee = excitation.amplitude
+
+    U = Matrix{Float64}(undef, N,N)
+    @show N
+    for n in 0:N-1
+        for k in 0:N-1
+            if n==k
+                U[n+1,k+1]=1/(2*n+1)
+            elseif (n+k)%2 == 0
+                U[n+1,k+1]=0.0
+            else
+                Ank = Σ[n+1]/Σ[k+1]
+                Akn = 1/Ank
+                U[n+1,k+1]=2/π*(sin(π/2*n)*cos(π/2*k)*Ank/(n*(n+1)-k*(k+1))-sin(π/2*k)*cos(π/2*n)*Akn/(n*(n+1)-k*(k+1)))
+            end
+        end
+    end
+    M1 = zeros(N+1, N+1)
+    for n in 0:N
+        for k in 0:N
+            M1[n+1,k+1] = ((eta[n+1]*(k+1)+(-1)^(n+k)*(k+1))*(b^n-a^(2n+1)/b^(n+1)) + (eps1*eta[n+1]+eps2*(-1)^(n+k))*(n*b^n+(n+1)a^(2*n+1)/b^(n+1)))*U[n+1,k+1]
+        end
+    end
+    A1 = zeros(N+1)
+    for k in 0:N
+        A1[k+1] = -Ee*b*((k+1)+1+(k+1)*(-1)^(k+1)+(-1)^(k+1))*U[2,k+1]
+    end
+
+    res = M1 \ A1
+end
+
 fieldType(F::ElectricField)       = SVector{3,Complex{eltype(F.locations[1])}}
 fieldType(F::DisplacementField)   = SVector{3,Complex{eltype(F.locations[1])}}
 fieldType(F::ScalarPotential)     = Complex{eltype(F.locations[1])}

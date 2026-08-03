@@ -41,7 +41,7 @@ export HertzianDipole, FitzgeraldDipole
 export planeWave
 export SphericalMode, SphericalModeTE, SphericalModeTM
 export PECSphere, DielectricSphere, LayeredSphere, LayeredSpherePEC
-export Hemispheres, HemispherePEC
+export Hemispheres, HemispherePEC, HemispheresPECCore
 export DielectricSphereThinImpedanceLayer
 export field, scatteredfield
 export sphericalGridPoints, phiCutPoints, thetaCutPoints
